@@ -1,0 +1,3 @@
+FQDN : "node-0.kubernetes.local"
+HOST : "node-0"
+SUBNET : "10.200.0.0/24"

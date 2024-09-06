@@ -1,0 +1,71 @@
+---
+- name: Bootstrapping sshd configuration on all nodes
+  hosts: all
+  become: true
+#  vars: 
+#    - server: {{FQDN}} {{HOST}}
+#    - node1: {{FQDN}} {{HOST}}
+#    - node2:  {{FQDN}} {{HOST}}
+  tasks:
+
+
+  - name: enable root ssh access
+    lineinfile:
+      path: /etc/ssh/sshd_config
+      regexp: '^#PermitRootLogin'
+      line: 'PermitRootLogin yes'
+    register: enable_root
+
+
+  - name: restart sshd service
+    service:
+      name: sshd
+      state: restarted
+    when: enable_root is changed
+
+
+  - name: add sshkey for root to all nodes
+    tags: always
+    authorized_key:
+      user: root
+      key: "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIIvuRZJfoSX0eSbFLgoi/2OCX0GGMa4uc7te9nzhOAk1 k8s root key"
+
+
+  - name: update hostname on all nodes
+    lineinfile:
+      path: /etc/hosts
+      regexp: '^127.0.1.1'
+      line: '127.0.1.1 {{FQDN}} {{HOST}}'
+      owner: root
+      group: root
+      mode: '0644'
+    register: update_hostname
+
+
+  - name: ping new hostnames
+    net_ping: "{{ HOST }}"
+
+
+  - name: test reachability of nodes with hostnamectl
+    command: hostnamectl | grep hostname | awk '{print $3}'
+
+
+  - name: Collect nodes details to update hosts file.
+    set_fact:
+      collected_nodes_details: "{{ collected_nodes_details: | default({}) | combine({ip: inventory_hostname, fqdn: hostvars[inventory_hostname]['FQDN'], host:hostvars[inventory_hostname]['HOST']}) }}"
+    run_once: true
+
+
+  - name: add dns entries for each node to all nodes hosts file
+#    lineinfile:
+#      path: /etc/hosts
+#      line: {{ansible_facts[]}} {{FQDN}} {{HOST}}
+#      create: yes
+#    command: bash -c 'echo "" ' > hosts && 'echo "# Kubernetes The Hard Way"' >> hosts
+    blockinfile:
+      path: /etc/hosts
+      block: |
+        {{ item.ip }} {{ item.fqdn }} {{ item.host }}
+      marker: "#  {mark} Kubernetes The Hard Way"
+    loop: "{{ collected_nodes_details }}"
+
