@@ -1,0 +1,10 @@
+---
+- name: Copy Encryption Config file to master node
+  hosts: master
+  become: true
+  tasks:
+
+  - name: copy encryption config file to the master node
+    copy:
+      src: encryption-config.yaml
+      dest: /root/

@@ -1,0 +1,74 @@
+---
+- name: copy over certificate crt and key files
+  hosts: worker
+  become: true
+  tasks:
+
+  - name: Create a directory if it does not exist
+    file:
+      path: /var/lib/kubelet/
+      state: directory
+      mode: '0644'
+
+  - name: copy certificate ca.crt file for each node
+    copy:
+      src: "ca.crt"
+      dest: /var/lib/kubelet/
+      owner: root
+      group: root
+
+
+  - name: copy certificate crt file for each node
+    copy:
+      src: "{{item.name}}.crt"
+      dest: /var/lib/kubelet/kubelet.crt
+      owner: root
+      group: root
+    loop:
+      - name: "{{ hostvars[groups['worker'][0]]['HOST'] }}"
+        ip: "{{ groups['worker'][0] }}"
+      - name: "{{ hostvars[groups['worker'][1]]['HOST'] }}"
+        ip: "{{ groups['worker'][1] }}"
+    when: ansible_hostname == item.name
+
+  - name: copy certificate key file for each node
+    copy:
+      src: "{{item.name}}.key"
+      dest: /var/lib/kubelet/kubelet.key
+      owner: root
+      group: root
+      mode: '0600'
+    loop:
+      - name: "{{ hostvars[groups['worker'][0]]['HOST'] }}"
+        ip: "{{ groups['worker'][0] }}"
+      - name: "{{ hostvars[groups['worker'][1]]['HOST'] }}"
+        ip: "{{ groups['worker'][1] }}"
+    when: ansible_hostname == item.name
+
+- name: copy certificates and private key to server node
+  hosts: master
+  become: true
+  tasks:
+
+  - name: copy certificate crts to the server node
+    copy:
+      src: "{{ item }}"
+      dest: /root/
+      owner: root
+      group: root
+    loop:
+      - ca.crt
+      - kube-api-server.crt
+      - service-accounts.crt
+
+  - name: copy certificate keys to the server node
+    copy:
+      src: "{{ item }}"
+      dest: /root/
+      owner: root
+      group: root
+      mode: '0600'
+    loop:
+      - ca.key
+      - kube-api-server.key
+      - service-accounts.key

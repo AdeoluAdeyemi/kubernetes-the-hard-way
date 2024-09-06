@@ -2,11 +2,90 @@
 - name: Bootstrapping sshd configuration on all nodes
   hosts: all
   become: true
-#  vars: 
-#    - server: {{FQDN}} {{HOST}}
-#    - node1: {{FQDN}} {{HOST}}
-#    - node2:  {{FQDN}} {{HOST}}
+#  vars:
+#    - server: groups['master'][0] {{hostvars[groups['master'][0]]['FQDN']}} {{hostvars[groups['master'][0]]['HOST']}}
+#    - node1:  groups['worker'][0] {{hostvars[groups['worker'][0]]['FQDN']}} {{hostvars[groups['worker'][0]]['HOST']}}
+#    - node2:  groups['worker'][1] {{hostvars[groups['worker'][1]]['FQDN']}} {{hostvars[groups['worker'][1]]['HOST']}}
   tasks:
+
+
+  - name: add sshkey for root to all nodes
+    tags: always
+    authorized_key:
+      user: root
+      key: "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIIvuRZJfoSX0eSbFLgoi/2OCX0GGMa4uc7te9nzhOAk1 k8s root key"
+
+  - name: change hostname across all nodes
+    command: hostnamectl hostname {{HOST}}
+    changed_when: false
+    register: change_hostname
+
+
+  - name: update hostname on all nodes
+    lineinfile:
+      path: /etc/hosts
+      regexp: '^127.0.1.1'
+      line: '127.0.1.1 {{FQDN}} {{HOST}}'
+      owner: root
+      group: root
+      mode: '0644'
+    register: update_hostname
+
+
+  - name: print the host ip
+    debug:
+      msg: "The host ip of this node is {{inventory_hostname}}"
+#    when: change_hostname is succeeded
+
+  - name: print the hostname of the node
+    debug:
+      msg: "The hostname of this node is {{ansible_hostname}}"
+    when: change_hostname is succeeded
+
+
+#  - name: Collect nodes details to update hosts file.
+#    set_fact:
+#      collected_nodes_details: "{{ collected_nodes_details: | default({}) | combine({inventory_hostname: {ip: inventory_hostname, fqdn: hostvars[inventory_hostname]['FQDN'], host: hostvars[inventory_hostname]['HOST']}}) }}"
+#      collected_nodes_details: "{{ collected_nodes_details | default({}) | combine({inventory_hostname: {'ip': ansible_default_ipv4.address, 'fqdn': ansible_fqdn, 'host': ansible_hostname}}) }}"
+#      collected_nodes_details: "{{ collected_nodes_details | default({}) | combine({inventory_hostname: {'ip': inventory_hostname, 'fqdn': hostvars[inventory_hostname]['FQDN'], 'host': hostvars[inventory_hostname]['HOST']}}) }}"
+#    run_once: true
+
+  - name: Prepare list of host entries
+    set_fact:
+      dns_entries:
+        - ip: "{{ groups['all'][0] }}"
+          fqdn: "{{ hostvars[groups['all'][0]]['FQDN'] }}"
+          host: "{{ hostvars[groups['all'][0]]['HOST'] }}"
+        - ip: "{{ groups['worker'][0] }}"
+          fqdn: "{{ hostvars[groups['worker'][0]]['FQDN'] }}"
+          host: "{{ hostvars[groups['worker'][0]]['HOST'] }}"
+        - ip: "{{ groups['worker'][1] }}"
+          fqdn: "{{ hostvars[groups['worker'][1]]['FQDN'] }}"
+          host: "{{ hostvars[groups['worker'][1]]['HOST'] }}"
+
+
+  - name: add marker to all nodes hosts file
+    command: sudo bash -c 'echo "# Kubernetes The Hard Way" >> /etc/hosts'
+
+  - name: add dns entries for each node to all nodes hosts file
+    command: sudo bash -c 'echo "{{ item.ip }} {{ item.fqdn }} {{ item.host }}" >> /etc/hosts'
+#    blockinfile:
+#      path: /etc/hosts
+#      marker: "#  {mark} Kubernetes The Hard Way"
+#      append_newline: true
+#      prepend_newline: true
+#      insertAfter: "EOF"
+#      block: |
+#        {{ item.ip }} {{ item.fqdn }} {{ item.host }}
+#        {{ groups['all'][0] }} {{ hostvars[groups['all'][0]]['FQDN'] }} {{ hostvars[groups['all'][0]]['HOST'] }}
+#        {{ groups['worker'][0] }} {{ hostvars[groups['worker'][0]]['FQDN'] }} {{ hostvars[groups['worker'][0]]['HOST'] }}
+#        {{ groups['worker'][1] }} {{ hostvars[groups['worker'][1]]['FQDN'] }} {{ hostvars[groups['worker'][1]]['HOST'] }}
+
+#      marker: "#  {mark} Kubernetes The Hard Way"
+    loop: "{{ dns_entries }}"
+#      - { ip: groups['all'][0], fqdn: {{hostvars[groups['all'][0]]['FQDN']}}, host: {{hostvars[groups['all'][0]]['HOST']}} }
+#      - { ip: groups['worker'][0], fqdn: {{hostvars[groups['worker'][0]]['FQDN']}}, host: {{hostvars[groups['worker'][0]]['HOST']}} }
+#      - { ip: groups['worker'][1], fqdn: {{hostvars[groups['worker'][1]]['FQDN']}}, host: {{hostvars[groups['worker'][1]]['HOST']}} }
 
 
   - name: enable root ssh access
@@ -22,50 +101,3 @@
       name: sshd
       state: restarted
     when: enable_root is changed
-
-
-  - name: add sshkey for root to all nodes
-    tags: always
-    authorized_key:
-      user: root
-      key: "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIIvuRZJfoSX0eSbFLgoi/2OCX0GGMa4uc7te9nzhOAk1 k8s root key"
-
-
-  - name: update hostname on all nodes
-    lineinfile:
-      path: /etc/hosts
-      regexp: '^127.0.1.1'
-      line: '127.0.1.1 {{FQDN}} {{HOST}}'
-      owner: root
-      group: root
-      mode: '0644'
-    register: update_hostname
-
-
-  - name: ping new hostnames
-    net_ping: "{{ HOST }}"
-
-
-  - name: test reachability of nodes with hostnamectl
-    command: hostnamectl | grep hostname | awk '{print $3}'
-
-
-  - name: Collect nodes details to update hosts file.
-    set_fact:
-      collected_nodes_details: "{{ collected_nodes_details: | default({}) | combine({ip: inventory_hostname, fqdn: hostvars[inventory_hostname]['FQDN'], host:hostvars[inventory_hostname]['HOST']}) }}"
-    run_once: true
-
-
-  - name: add dns entries for each node to all nodes hosts file
-#    lineinfile:
-#      path: /etc/hosts
-#      line: {{ansible_facts[]}} {{FQDN}} {{HOST}}
-#      create: yes
-#    command: bash -c 'echo "" ' > hosts && 'echo "# Kubernetes The Hard Way"' >> hosts
-    blockinfile:
-      path: /etc/hosts
-      block: |
-        {{ item.ip }} {{ item.fqdn }} {{ item.host }}
-      marker: "#  {mark} Kubernetes The Hard Way"
-    loop: "{{ collected_nodes_details }}"
-

@@ -1,0 +1,39 @@
+---
+- hosts: worker
+  name: Bootstrapping the Kubernetes Worker Nodes
+  become: true
+  tasks:
+
+  - name: Update apt cache and upgrade system
+    apt:
+      upgrade: dist
+      update_cache: yes
+
+  - name: Copy 10-bridge.conf and kubelet-config.yaml to the nodes
+    copy:
+      src: "{{ item }}"
+      dest: /root/
+    loop:
+      - "10-bridge.conf"
+      - "kubelet-config.yaml"
+
+  - name: Update the SUBNET attributes in 10-bridge.conf and kubelet-config.yaml files
+    lineinfile:
+      path: "/root/{{ item.name }}"
+      regexp: "{{ item.regex }}"
+      line: "{{ item.newText }}"
+    loop:
+      - name: "10-bridge.conf"
+        regex: '"subnet":\s*"([^"]+)'
+        newText: '      [{"subnet": "{{ SUBNET }}"}]'
+      - name: "kubelet-config.yaml"
+        regex: '^podCIDR'
+        newText: 'podCIDR: "{{ SUBNET }}"'
+
+  - name: Install OS dependencies
+    apt:
+      name:
+        - socat
+        - conntrack
+        - ipset
+      state: present
